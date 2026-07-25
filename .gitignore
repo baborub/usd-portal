@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# local exchange/scratch data
+usd_bridge_cache/
+*.bgeo
+*.hip
+*.hipnc
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- USD Portal shelf. The package puts this dir on HOUDINI_TOOLBAR_PATH.
+       Tools must be defined before the toolshelf that references them. -->
+
+  <tool name="ub_get_from_zbrush" label="Get from ZBrush" icon="usd_bridge">
+    <helpText><![CDATA[Import every VISIBLE ZBrush subtool into Houdini through USD.
+
+ZBrush exports its visible subtools to GoZ, Houdini authors a USD stage
+(one Mesh prim per subtool under /root, with UV as primvars:st, polypaint as
+primvars:displayColor, and the Texture Map as a UsdPreviewSurface), and imports
+it back as polygons with an assigned Principled Shader.
+
+ZBrush must already be running with a tool loaded.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.get_from_zbrush()
+]]></script>
+  </tool>
+
+  <tool name="ub_send_to_zbrush" label="Send to ZBrush" icon="usd_bridge">
+    <helpText><![CDATA[Send the selected geometry to ZBrush as subtools.
+
+Works from SOPs (the selected SOP / current geo) and from LOPs (the selected
+LOP node's stage). Geometry is baked to world space, split into subtools by the
+name/path attribute, written as OBJ, and imported into ZBrush - appended to the
+current tool, or as a new tool if none is open.
+
+ZBrush must already be running.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.send_to_zbrush()
+]]></script>
+  </tool>
+
+  <tool name="ub_send_to_blender" label="Send to Blender" icon="usd_bridge">
+    <helpText><![CDATA[Send the selected geometry to Blender as USD.
+
+Works from SOPs (split into objects by name/path, textures included) and from
+LOPs (the node's stage is flattened - materials travel natively).
+
+Blender must be running with the 'USD Portal' add-on enabled.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.send_to_blender()
+]]></script>
+  </tool>
+
+  <tool name="ub_get_from_blender" label="Get from Blender" icon="usd_bridge">
+    <helpText><![CDATA[Import Blender's selected objects (or all meshes) through USD.
+
+Blender exports the selection to USD; Houdini imports it into SOPs, or
+sublayers it into the current LOP network. Materials with textures are
+rebuilt as Principled Shaders in SOPs.
+
+Blender must be running with the 'USD Portal' add-on enabled.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.get_from_blender()
+]]></script>
+  </tool>
+
+  <tool name="ub_send_to_maya" label="Send to Maya" icon="usd_bridge">
+    <helpText><![CDATA[Send the selected geometry to Maya as USD.
+
+Works from SOPs (split by name/path, textures included, hidden prims dropped)
+and from LOPs (stage flattened, invisible prims pruned).
+
+Maya must be running with the usd_bridge_maya script started.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.send_to_maya()
+]]></script>
+  </tool>
+
+  <tool name="ub_get_from_maya" label="Get from Maya" icon="usd_bridge">
+    <helpText><![CDATA[Import Maya's visible selection (or all visible meshes) through USD.
+
+Maya exports via mayaUsd; Houdini imports into SOPs or sublayers into the
+current LOP network. Colour sets become displayColor/Cd, textures become
+Principled Shaders in SOPs.
+
+Maya must be running with the usd_bridge_maya script started.]]></helpText>
+    <script scriptType="python"><![CDATA[import usd_bridge
+usd_bridge.get_from_maya()
+]]></script>
+  </tool>
+
+  <toolshelf name="usd_bridge" label="USD Portal">
+    <memberTool name="ub_get_from_zbrush"/>
+    <memberTool name="ub_send_to_zbrush"/>
+    <memberTool name="ub_send_to_blender"/>
+    <memberTool name="ub_get_from_blender"/>
+    <memberTool name="ub_send_to_maya"/>
+    <memberTool name="ub_get_from_maya"/>
+  </toolshelf>
+
+</shelfDocument>
