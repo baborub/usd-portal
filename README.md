@@ -38,7 +38,7 @@ build (`python3.13libs` is where the module lives).
 ## Install
 
 ```powershell
-git clone https://github.com/YOUR_USER/usd-portal.git
+git clone https://github.com/baborub/usd-portal.git
 cd usd-portal
 powershell -ExecutionPolicy Bypass -File deploy\deploy.ps1
 ```
