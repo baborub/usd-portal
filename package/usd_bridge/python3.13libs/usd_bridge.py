@@ -91,12 +91,10 @@ SEND_TO_CURRENT_TOOL = False   # False = import as a NEW tool (robust: SimpleBru
                                # i.e. "not found", otherwise); the script tries to enter it.
 SEND_SPLIT = "auto"            # "auto" = split by name/path attribute, else one subtool;
                                # "single" = always one subtool
-SEND_FLIP_NORMALS = True       # make winding ZBrush-compatible before OBJ export.
-                               # Houdini-native geometry needs a reverse (opposite
-                               # winding conventions); geometry unpacked from USD
-                               # (usdimport/unpackusd, tagged usdconfigreversepolygons)
-                               # is ALREADY opposite-wound and is sent as-is - flipping
-                               # it too would invert normals in ZBrush.
+SEND_FLIP_NORMALS = True       # auto-correct winding before OBJ export: ZBrush wants
+                               # Houdini-native winding, so a piece whose signed volume
+                               # has the OPPOSITE sign (however it got that way) is
+                               # reversed; native-wound geometry is sent as-is.
 SEND_TEXTURES = True           # also send each subtool's diffuse texture (from its
                                # Principled Shader) and assign it to Tool>Texture Map.
                                # Each texture is copied to a unique name so ZBrush names
@@ -245,19 +243,34 @@ def _prim_name(name, used):
 
 
 def _topology(geo):
-    """Return (faceVertexCounts, faceVertexIndices) in Houdini linear vertex order.
+    """Return (faceVertexCounts, faceVertexIndices) in USD right-handed order.
+
+    Houdini winds polygons opposite to USD's rightHanded convention, so each
+    face's vertex sequence is REVERSED here (consumers that honour orientation -
+    Maya in particular - would otherwise see inverted normals). FaceVarying
+    primvars must be permuted the same way: see _facevarying_reverse_order.
 
     This is the one unavoidable per-vertex pass. It is fine for the mesh sizes a
-    sculptor usually bridges; for very heavy meshes a SOP->USD-ROP backend would be
-    faster (see README, 'Known limitations').
+    sculptor usually bridges.
     """
     counts, indices = [], []
     for prim in geo.iterPrims():
         verts = prim.vertices()
         counts.append(len(verts))
-        for v in verts:
+        for v in reversed(verts):
             indices.append(v.point().number())
     return counts, indices
+
+
+def _facevarying_reverse_order(counts):
+    """Linear-index permutation matching _topology's per-face reversal, for
+    reordering faceVarying primvar values authored from Houdini vertex order."""
+    order = np.empty(int(np.sum(counts)), dtype=np.int64)
+    base = 0
+    for c in counts:
+        order[base:base + c] = np.arange(base + c - 1, base - 1, -1)
+        base += c
+    return order
 
 
 def _uv_source(geo):
@@ -300,6 +313,7 @@ def _author_mesh(stage, prim_path, geo):
                                Gf.Vec3f(*[float(x) for x in hi])])
 
     api = UsdGeom.PrimvarsAPI(mesh)
+    fv_order = None                              # lazy: per-face reversal permutation
 
     # UV -> primvars:st
     uv_class, uv_size = _uv_source(geo)
@@ -310,6 +324,10 @@ def _author_mesh(stage, prim_path, geo):
         if FLIP_TEXTURE_V:
             uvv = uvv.copy()
             uvv[:, 1] = 1.0 - uvv[:, 1]        # ZBrush -> Houdini/USD V origin
+        if uv_class == "vertex":               # follow the right-handed reversal
+            if fv_order is None:
+                fv_order = _facevarying_reverse_order(counts)
+            uvv = uvv[fv_order]
         interp = UsdGeom.Tokens.faceVarying if uv_class == "vertex" else UsdGeom.Tokens.vertex
         st = api.CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray, interp)
         st.Set(Vt.Vec2fArray.FromNumpy(np.ascontiguousarray(uvv)))
@@ -320,6 +338,10 @@ def _author_mesh(stage, prim_path, geo):
         raw = (geo.pointFloatAttribValues("Cd") if cd_class == "point"
                else geo.vertexFloatAttribValues("Cd"))
         cd = np.asarray(raw, dtype=np.float32).reshape(-1, 3)
+        if cd_class == "vertex":               # faceVarying: follow the reversal
+            if fv_order is None:
+                fv_order = _facevarying_reverse_order(counts)
+            cd = cd[fv_order]
         interp = UsdGeom.Tokens.vertex if cd_class == "point" else UsdGeom.Tokens.faceVarying
         dc = api.CreatePrimvar("displayColor", Sdf.ValueTypeNames.Color3fArray, interp)
         dc.Set(Vt.Vec3fArray.FromNumpy(np.ascontiguousarray(cd)))
@@ -701,19 +723,30 @@ class Bridge(object):
             pass
         return None, None
 
+    # Houdini's native winding gives a NEGATIVE signed volume for an outward-facing
+    # closed mesh (probed on a box). ZBrush expects native winding on OBJ import.
+    _NATIVE_VOLUME_SIGN = -1.0
+
     @staticmethod
-    def _usd_prereversed(geo):
-        """True for geometry that came out of unpackusd: it keeps USD's right-handed
-        vertex order (already opposite to native Houdini winding) and is tagged with
-        the string prim attrib usdconfigreversepolygons = '1'."""
-        attr = geo.findPrimAttrib("usdconfigreversepolygons")
-        if attr is None:
+    def _signed_volume(geo):
+        P = np.array(geo.pointFloatAttribValues("P"), dtype=np.float64).reshape(-1, 3)
+        total = 0.0
+        for prim in geo.iterPrims():
+            ids = [v.point().number() for v in prim.vertices()]
+            for i in range(1, len(ids) - 1):
+                total += np.dot(P[ids[0]], np.cross(P[ids[i]], P[ids[i + 1]])) / 6.0
+        return total
+
+    def _winding_opposite_native(self, geo):
+        """True when the mesh's winding is opposite to Houdini-native (signed-volume
+        sign test - geometry truth, independent of where the mesh came from). Open /
+        degenerate meshes with a near-zero volume are treated as native (no flip)."""
+        volume = self._signed_volume(geo)
+        bbox = geo.boundingBox()
+        scale = max(bbox.sizevec()[0], bbox.sizevec()[1], bbox.sizevec()[2], 1e-6)
+        if abs(volume) < 1e-6 * scale ** 3:
             return False
-        try:
-            values = geo.primStringAttribValues("usdconfigreversepolygons")
-        except hou.OperationFailed:
-            return True                    # tagged, unexpected type -> assume reversed
-        return any(v not in ("", "0") for v in values)
+        return volume * self._NATIVE_VOLUME_SIGN < 0
 
     def _reverse_winding(self, geo):
         """Reverse polygon winding (flip normals) via a temp Reverse SOP. Houdini and
@@ -733,7 +766,7 @@ class Bridge(object):
         """Return [(subtool_name, hou.Geometry)] split by name/path attr (or one)."""
         if len(geo.iterPrims()) == 0:
             return []
-        if SEND_FLIP_NORMALS and not self._usd_prereversed(geo):
+        if SEND_FLIP_NORMALS and self._winding_opposite_native(geo):
             geo = self._reverse_winding(geo)
         attr = None
         if SEND_SPLIT == "auto":

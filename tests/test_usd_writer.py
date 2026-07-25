@@ -370,22 +370,26 @@ def main():
     n1 = bridge._reverse_winding(g0).prims()[0].normal()
     check(n0.dot(n1) < 0, "send: _reverse_winding flips face normals (dot=%.2f)" % n0.dot(n1))
 
-    # USD-unpacked geometry is already opposite-wound -> _split must NOT flip it again
+    # Winding model: authored USD is true right-handed; unpackusd converts back to
+    # native; ZBrush wants NATIVE winding -> only opposite-wound geometry is flipped.
     wusd2 = tmp + "/windsrc.usd"
     usd_bridge.author_usd([("W", g0, None)], wusd2)
     wgeo = hou.node("/obj").createNode("geo", "windu")
     wimp = wgeo.createNode("usdimport"); wimp.parm("filepath1").set(wusd2)
     wup = wimp.createOutputNode("unpackusd"); wup.parm("output").set(1)
     wg = wup.geometry().freeze()
-    check(bridge._usd_prereversed(wg), "send: unpackusd geometry detected as pre-reversed")
-    check(not bridge._usd_prereversed(g0), "send: native geometry not flagged")
     nu = wg.prims()[0].normal()
-    pieces_u = bridge._split(wg, "u")
-    ns = pieces_u[0][1].prims()[0].normal()
-    check(nu.dot(ns) > 0.99, "send: USD-unpacked piece NOT double-flipped (dot=%.2f)" % nu.dot(ns))
+    check(n0.dot(nu) > 0.99, "wind: authored RH file unpacks to native (dot=%.2f)" % n0.dot(nu))
+    check(not bridge._winding_opposite_native(g0), "wind: native box detected native")
+    check(not bridge._winding_opposite_native(wg), "wind: unpacked box detected native")
+    rev = bridge._reverse_winding(g0)
+    check(bridge._winding_opposite_native(rev), "wind: reversed box detected opposite")
     pieces_n = bridge._split(g0, "n")
     nn = pieces_n[0][1].prims()[0].normal()
-    check(n0.dot(nn) < -0.99, "send: native piece still flipped for ZBrush (dot=%.2f)" % n0.dot(nn))
+    check(n0.dot(nn) > 0.99, "wind: native piece sent as-is (dot=%.2f)" % n0.dot(nn))
+    pieces_r = bridge._split(rev, "r")
+    nr = pieces_r[0][1].prims()[0].normal()
+    check(n0.dot(nr) > 0.99, "wind: opposite piece auto-corrected to native (dot=%.2f)" % n0.dot(nr))
 
     print()
     if _failures:

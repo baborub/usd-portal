@@ -134,8 +134,10 @@ animation, full material graphs beyond the diffuse texture.
 - ZBrush reads OBJ vertex colours as sRGB → senders pre-encode linear `Cd`.
 - Scale: **1 unit = 1 meter** everywhere; the Maya agent bakes ×100/÷100 on the
   ZBrush OBJ leg, mayaUsd converts the USD legs.
-- Winding: Houdini-native geometry is reversed for ZBrush; USD-unpacked geometry
-  (tagged `usdconfigreversepolygons`) is already opposite-wound and sent as-is.
+- Winding: authored USD is true right-handed (Houdini's opposite winding is
+  reversed at authoring time, faceVarying primvars included), so Maya/Blender see
+  correct normals. Sends to ZBrush auto-correct winding by a signed-volume test —
+  geometry truth, regardless of where the mesh came from.
 
 ---
 
