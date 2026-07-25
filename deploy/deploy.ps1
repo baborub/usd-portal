@@ -34,7 +34,9 @@ $manifest = @"
     ]
 }
 "@
-Set-Content -Path $dstJson -Value $manifest -Encoding utf8
+# NOTE: must be UTF-8 WITHOUT BOM - Houdini rejects package json files with a BOM
+# (PowerShell 5.1's Set-Content -Encoding utf8 writes one).
+[System.IO.File]::WriteAllText($dstJson, $manifest)
 Write-Host "Deployed:" -ForegroundColor Green
 Write-Host "  $dstJson"
 Write-Host ""
